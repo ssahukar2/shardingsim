@@ -43,18 +43,13 @@ make clean
 make
 
 echo ""
-echo "== Quick test: receiver (background) + generator..."
-./build/receiver --sleep-ms 5 &
-RECV_PID=$!
-sleep 1
+echo "== Quick test: generator with --spawn-receiver (receiver stops when generator exits)..."
 
 set +e
-./build/generator alice bob 1 64 --threads 2 --batch 32 --connect tcp://localhost:5557
+./build/generator alice bob 1 64 --threads 2 --batch 32 --connect tcp://localhost:5557 \
+  --spawn-receiver --receiver-arg --sleep-ms --receiver-arg 5
 GEN_EXIT=$?
 set -e
-
-kill "$RECV_PID" 2>/dev/null || true
-wait "$RECV_PID" 2>/dev/null || true
 
 if [ "$GEN_EXIT" -ne 0 ]; then
   echo ""

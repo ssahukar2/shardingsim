@@ -1,0 +1,17 @@
+{
+  "schema": "shardingsim-bench-manifest-1",
+  "generated_utc": "2026-03-29T01:25:37Z",
+  "run_id": "20260328-202537",
+  "suite": "standard",
+  "warmup_per_config": 1,
+  "reps_per_config": 3,
+  "raw_tsv": "results/micro-raw-20260328-202537.tsv",
+  "default_counts_documentation": "128 256 384 512 768 1024 threads=1 2 4 8 12 batches=8 16 32 64 128",
+  "git_commit": "91471b71b5c746d356a0455b1b66bf190a099ceb",
+  "git_dirty_lines": "15",
+  "uname": "Linux Ada 5.15.167.4-microsoft-standard-WSL2 #1 SMP Tue Nov 5 00:21:55 UTC 2024 x86_64",
+  "hostname": "Ada",
+  "nproc": "12",
+  "gcc_version": "gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0",
+  "env_omp": {}
+}

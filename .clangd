@@ -1,0 +1,9 @@
+# Helps clangd/Cursor find headers when editing on Windows; target matches Linux/WSL build.
+CompileFlags:
+  Add:
+    - -std=c11
+    - -Wall
+    - -Iinclude
+    - -Iproto
+    - -fopenmp
+    - -D_GNU_SOURCE

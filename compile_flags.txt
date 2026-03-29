@@ -1,0 +1,6 @@
+-std=c11
+-Wall
+-Iinclude
+-Iproto
+-fopenmp
+-D_GNU_SOURCE

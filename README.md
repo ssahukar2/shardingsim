@@ -12,6 +12,7 @@ A **C** load generator and receiver for parallel transaction submission over **Z
 - [Run (Linux)](#run-linux)
 - [Options reference](#options-reference)
 - [Tests](#tests)
+- [Benchmarks](#benchmarks)
 - [Glossary: Running on Windows via WSL](#glossary-running-on-windows-via-wsl)
 
 ---
@@ -57,8 +58,10 @@ A **C** load generator and receiver for parallel transaction submission over **Z
 | **src/blake3.c** + **include/blake3.h** | **BLAKE3** implementation used for transaction hashes (and any other BLAKE3 usage). |
 | **proto/blockchain.proto** | **Protobuf** definitions: `Transaction` and `TransactionBatch` only (no blocks). Used for on-wire encoding. |
 | **proto/blockchain.pb-c.c/h** | Generated **protobuf-c** code (pack/unpack). Regenerate with `protoc --c_out=./proto` if you change the `.proto` file. |
-| **Makefile** | Builds `build/generator` (main.c + transaction + wallet + common + blake3 + proto) and `build/receiver` (receiver.c + transaction + common + blake3 + proto). |
+| **src/bench.c** + **include/bench.h** | Shared benchmark helpers: wall-clock samples, generator summary text, receiver per-batch stderr lines (`bench_recv ...`). |
+| **Makefile** | Builds `build/generator` and `build/receiver` (both link `bench.o`). |
 | **build/** | Output directory for object files and binaries: `generator`, `receiver`. |
+| **scripts/** | Smoke tests (`wsl-build-and-test.sh`, `linux-build-and-test.sh`); micro benchmarks: **`bench-micro.sh`**, **`micro_post.py`** (manifest / aggregate / readable), **`plot_micro_results.py`** (HTML) — see [Benchmarks](#benchmarks). |
 
 **Why “blockchain” in proto?**  
 The repo only uses transactions and batches; the name comes from the original project. You can ignore it—treat `proto/` as “serialization for Transaction and TransactionBatch”.
@@ -139,6 +142,23 @@ Examples:
 
 Optional: `--sleep-ms N` in-process adds N ms delay per batch in the callback.
 
+**One terminal: generator starts and stops the receiver**
+
+If you pass **`--spawn-receiver`**, the generator **forks** `./build/receiver` (or `--receiver-path`), waits a second for it to bind, then connects as usual. When the generator **exits normally**, or on **SIGINT** / **SIGTERM**, it **SIGTERM**s the child receiver and **wait**s for it—no separate shell script required.
+
+```bash
+./build/generator alice bob 1 2000 --threads 4 --batch 64 --spawn-receiver
+```
+
+Pass extra receiver flags with repeated **`--receiver-arg`** (one token each):
+
+```bash
+./build/generator alice bob 1 500 --spawn-receiver \
+  --receiver-arg --sleep-ms --receiver-arg 2 --receiver-arg --verify
+```
+
+Run from the project root so the default receiver path `build/receiver` exists. The build-and-test scripts use `--spawn-receiver` for their ZMQ smoke test.
+
 ---
 
 ## Options reference
@@ -149,10 +169,15 @@ Optional: `--sleep-ms N` in-process adds N ms delay per batch in the callback.
 |--------|---------|-------------|
 | `--connect ADDR` | `tcp://localhost:5557` | ZMQ endpoint of the receiver |
 | `--in-process` | off | No ZMQ; use in-process callback only |
+| `--spawn-receiver` | off | Fork/exec receiver; stop it on generator exit or SIGINT/SIGTERM |
+| `--receiver-path P` | `build/receiver` | Receiver binary passed to `execvp` |
+| `--receiver-arg A` | — | One argv token for the receiver (repeat for multiple) |
 | `--threads N` | 48 | Number of OpenMP threads |
 | `--batch N` | 64 | Transactions per batch |
 | `--sleep-ms N` | 0 | In-process only: sleep N ms per batch |
 | `--base-nonce N` | 0 | Starting nonce for the sender |
+| `--bench` | off | Print phase timings (tx build, protobuf pack, ZMQ submit→OK or in-process callback); see [Benchmarks](#benchmarks) |
+| `--bench-oneway` | off | ZMQ only: append send-time trailer; pair receiver with `--bench-oneway` for `bench_oneway_ms` on stderr |
 
 **Receiver**
 
@@ -161,6 +186,29 @@ Optional: `--sleep-ms N` in-process adds N ms delay per batch in the callback.
 | `--bind ADDR` | `tcp://*:5557` | Bind address |
 | `--sleep-ms N` | 0 | Simulate work: sleep N ms per batch |
 | `--verify` | off | Run `transaction_verify()` on each TX |
+| `--bench` | off | Log each batch to stderr: `bench_recv proc_ms=... txs=...` (unpack + verify/sleep + free, until just before reply) |
+| `--bench-oneway` | off | Expect generator trailer; log `bench_oneway_ms=...` per batch (see Benchmarks) |
+
+---
+
+## Benchmarks
+
+**Scope:** Instrumentation is in **`src/bench.c`** / **`include/bench.h`**. **`--bench`** on the generator prints phase sums and a machine-readable **`BENCH_LINE`**; **`--bench`** on the receiver logs per-batch timing. **`--bench-oneway`** (generator + matching receiver) adds a send-timestamp trailer and **`bench_oneway_ms`** on stderr — do not pair with a receiver that omits **`--bench-oneway`**.
+
+**Micro benchmark** = sweep **count × threads × batch × mode** (in-process + two ZMQ receiver settings). **`scripts/bench-micro.sh`** runs the grid and writes **`results/micro-raw-*.tsv`**; **`scripts/micro_post.py`** writes **`micro-manifest-*.json`**, **`micro-agg-*.tsv`**, and **`micro-readable-*.md`**; **`scripts/plot_micro_results.py`** writes **`micro-agg-*.html`**. Env overrides are in the **header comment** of **`bench-micro.sh`**.
+
+This is a **practical single-machine harness** (warmup/reps, medians in the agg file), not a full production or distributed benchmark.
+
+| Command | Suite (rough size) |
+|--------|---------------------|
+| `make bench-micro-quick` | Tiny smoke run. |
+| `make bench-micro` | **Standard** — counts **128…1024**, threads **1,2,4,8,12** (≤ `nproc`), batches **8…128**; can take a long time. Override with **`BENCH_MICRO_*`** env vars or **`BENCH_MICRO_REPS=1`** while iterating. |
+| `make bench-micro-full` | Larger grid than standard; plan runtime. |
+| `make bench-micro-report` | Rebuild HTML from the newest **`results/micro-*.tsv`** (if you already have data). |
+
+Before the grid, the script prints **`Coverage: … configs → ~N generator runs`**. The HTML report has a **“Coverage in this file”** box so you can see whether you’re looking at a quick run vs a full sweep.
+
+**Reading aggregated TSV/HTML:** start with **`count`**, **`threads`**, **`batch`**, **`mode`**, **`recv_verify`**, then **`throughput_tx_s_median`** and **`wall_ms_median`**, and **`n_ok` / `n_fail`**. Quartile columns match the median when **`n_ok` = 1**. More detail lives in **`micro-readable-*.md`**.
 
 ---
 
@@ -178,10 +226,12 @@ and then prints “Done.”
 
 **ZMQ test (receiver + generator):**
 
-1. Terminal 1:  
-   `./build/receiver --sleep-ms 2`
-2. Terminal 2:  
-   `./build/generator alice bob 10 200 --threads 4 --batch 32`
+- **One terminal:**  
+  `./build/generator alice bob 10 200 --threads 4 --batch 32 --spawn-receiver`
+
+- **Two terminals:**  
+  1. `./build/receiver --sleep-ms 2`  
+  2. `./build/generator alice bob 10 200 --threads 4 --batch 32`
 
 ---
 

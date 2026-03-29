@@ -15,10 +15,12 @@
 
 #include "transaction.h"
 #include "common.h"
+#include "bench.h"
 #include "blockchain.pb-c.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdint.h>
 #include <unistd.h>
 #include <zmq.h>
 
@@ -28,6 +30,8 @@
 
 static unsigned int g_sleep_ms = 0;
 static int g_verify = 0;
+static int g_bench = 0;
+static int g_bench_oneway = 0;
 
 static Transaction* pb_to_tx(const Blockchain__Transaction* pt) {
     Transaction* tx = (Transaction*)safe_malloc(sizeof(Transaction));
@@ -57,6 +61,10 @@ int main(int argc, char* argv[]) {
             g_sleep_ms = (unsigned int)atoi(argv[++i]);
         } else if (strcmp(argv[i], "--verify") == 0) {
             g_verify = 1;
+        } else if (strcmp(argv[i], "--bench") == 0) {
+            g_bench = 1;
+        } else if (strcmp(argv[i], "--bench-oneway") == 0) {
+            g_bench_oneway = 1;
         }
     }
 
@@ -64,6 +72,9 @@ int main(int argc, char* argv[]) {
     printf("  Bind: %s\n", bind_addr);
     if (g_sleep_ms > 0) printf("  Sleep: %u ms per batch (simulated verification)\n", g_sleep_ms);
     if (g_verify) printf("  Verify: run transaction_verify() on each TX\n");
+    if (g_bench) printf("  Bench: stderr lines per batch (proc_ms after zmq_recv until reply)\n");
+    if (g_bench_oneway)
+        printf("  Bench one-way: stderr bench_oneway_ms (needs generator --bench-oneway trailer)\n");
     printf("  Run generator with: --connect tcp://localhost:5557\n\n");
 
     void* ctx = zmq_ctx_new();
@@ -85,9 +96,23 @@ int main(int argc, char* argv[]) {
             continue;
         }
 
+        uint64_t recv_ns = bench_realtime_ns();
+
         if (size > 16 && memcmp(buf, SUBMIT_BATCH_PB_PREFIX, 16) == 0) {
+            double t_proc0 = 0;
+            if (g_bench)
+                t_proc0 = bench_now_ms();
+
+            size_t pb_len = (size_t)size - 16u;
+            if (g_bench_oneway && size >= 24) {
+                pb_len = (size_t)size - 24u;
+                uint64_t send_ns = bench_u64_le_load((const uint8_t*)buf + size - 8);
+                if (recv_ns >= send_ns)
+                    bench_oneway_log_ms((double)(recv_ns - send_ns) / 1e6);
+            }
+
             Blockchain__TransactionBatch* batch = blockchain__transaction_batch__unpack(
-                NULL, (size_t)(size - 16), (uint8_t*)(buf + 16));
+                NULL, pb_len, (uint8_t*)(buf + 16));
             int accepted = 0, rejected = 0;
             if (batch) {
                 if (g_sleep_ms > 0)
@@ -104,6 +129,8 @@ int main(int argc, char* argv[]) {
                 total_received += (uint64_t)(accepted + rejected);
                 blockchain__transaction_batch__free_unpacked(batch, NULL);
             }
+            if (g_bench)
+                bench_receiver_batch(bench_now_ms() - t_proc0, accepted + rejected);
             {
                 char resp[64];
                 snprintf(resp, sizeof(resp), "OK:%d|%d", accepted, rejected);

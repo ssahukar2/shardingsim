@@ -11,6 +11,7 @@ PROTO_DIR = proto
 
 # Generator: main.c + wallet + transaction + common + blake3 + proto
 GEN_OBJS = $(BUILD_DIR)/main.o \
+           $(BUILD_DIR)/bench.o \
            $(BUILD_DIR)/transaction.o \
            $(BUILD_DIR)/wallet.o \
            $(BUILD_DIR)/common.o \
@@ -20,13 +21,14 @@ GENERATOR = $(BUILD_DIR)/generator
 
 # Receiver: receiver.c + transaction + common + blake3 + proto (no wallet)
 REC_OBJS = $(BUILD_DIR)/receiver.o \
+           $(BUILD_DIR)/bench.o \
            $(BUILD_DIR)/transaction.o \
            $(BUILD_DIR)/common.o \
            $(BUILD_DIR)/blake3.o \
            $(BUILD_DIR)/blockchain.pb-c.o
 RECEIVER = $(BUILD_DIR)/receiver
 
-.PHONY: all clean run test
+.PHONY: all clean run test bench-micro bench-micro-quick bench-micro-full bench-micro-report
 
 all: $(BUILD_DIR) $(GENERATOR) $(RECEIVER)
 
@@ -34,6 +36,9 @@ $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
 $(BUILD_DIR)/main.o: main.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/bench.o: $(SRC_DIR)/bench.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/transaction.o: $(SRC_DIR)/transaction.c | $(BUILD_DIR)
@@ -77,3 +82,18 @@ test: all
 	@echo "Test (in-process, no ZMQ): ./$(GENERATOR) alice bob 10 100 --in-process --threads 4 --batch 32"
 	./$(GENERATOR) alice bob 10 100 --in-process --threads 4 --batch 32
 	@echo "Done."
+
+# Default suite: standard (see scripts/bench-micro.sh)
+bench-micro: all
+	@bash ./scripts/bench-micro.sh
+
+bench-micro-quick: all
+	@BENCH_MICRO_SUITE=quick bash ./scripts/bench-micro.sh
+
+# Largest preset grid (see scripts/bench-micro.sh header)
+bench-micro-full: all
+	@BENCH_MICRO_FULL=1 bash ./scripts/bench-micro.sh
+
+# HTML only (Chart.js); aggregation lives in scripts/micro_post.py when you run bench-micro.sh
+bench-micro-report:
+	@python3 ./scripts/plot_micro_results.py
