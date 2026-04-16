@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
-# Micro benchmark driver: generator grid → raw TSV → micro_post.py (manifest, aggregate,
-# readable) → plot_micro_results.py → micro-agg-*.html. README § Benchmarks for overview.
+# Micro benchmark driver: generator grid → raw TSV → bench_post.py (manifest, aggregate,
+# readable) → plot_bench_results.py → micro-agg-*.html. README § Benchmarks for overview.
 #
 # Suite: BENCH_MICRO_SUITE=quick|standard|full, or BENCH_MICRO_QUICK=1 / BENCH_MICRO_FULL=1.
 # Overrides: BENCH_MICRO_COUNTS, BENCH_MICRO_THREADS, BENCH_MICRO_BATCHES (space-separated),
@@ -13,15 +13,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
-MICRO_POST="${SCRIPT_DIR}/micro_post.py"
-require_micro_post() {
-  [[ -f "$MICRO_POST" ]] || {
-    echo "Missing post-processor: $MICRO_POST" >&2
+BENCH_POST="${SCRIPT_DIR}/bench_post.py"
+require_bench_post() {
+  [[ -f "$BENCH_POST" ]] || {
+    echo "Missing post-processor: $BENCH_POST" >&2
     exit 1
   }
 }
-run_micro_post() {
-  python3 "$MICRO_POST" "$@"
+run_bench_post() {
+  python3 "$BENCH_POST" "$@"
 }
 
 GEN=./build/generator
@@ -151,8 +151,8 @@ else
 fi
 
 if command -v python3 >/dev/null 2>&1; then
-  require_micro_post
-  run_micro_post manifest "$MANIFEST" "$RUN_ID" "$SUITE" "$WARMUP" "$REPS" "$OUT" "$COUNTS_DOC"
+  require_bench_post
+  run_bench_post manifest "$MANIFEST" "$RUN_ID" "$SUITE" "$WARMUP" "$REPS" "$OUT" "$COUNTS_DOC"
 else
   echo "python3 required for manifest/aggregate/readable; skipping manifest" >&2
 fi
@@ -241,11 +241,11 @@ echo "Micro benchmarks done (suite=$SUITE): $RUN executions -> $OUT (warmup=$WAR
 AGG_OUT="${OUT/micro-raw-/micro-agg-}"
 HTML_OUT="${AGG_OUT%.tsv}.html"
 if command -v python3 >/dev/null 2>&1; then
-  require_micro_post
-  run_micro_post aggregate "$OUT" || true
+  require_bench_post
+  run_bench_post aggregate "$OUT" || true
   if [[ -f "$AGG_OUT" ]]; then
-    run_micro_post readable "$OUT" || true
-    PLOT_PY="${SCRIPT_DIR}/plot_micro_results.py"
+    run_bench_post readable "$OUT" || true
+    PLOT_PY="${SCRIPT_DIR}/plot_bench_results.py"
     if [[ -f "$PLOT_PY" ]]; then
       python3 "$PLOT_PY" "$AGG_OUT" -o "$HTML_OUT" || true
       echo "HTML report: $HTML_OUT" >&2

@@ -61,7 +61,7 @@ A **C** load generator and receiver for parallel transaction submission over **Z
 | **src/bench.c** + **include/bench.h** | Shared benchmark helpers: wall-clock samples, generator summary text, receiver per-batch stderr lines (`bench_recv ...`). |
 | **Makefile** | Builds `build/generator` and `build/receiver` (both link `bench.o`). |
 | **build/** | Output directory for object files and binaries: `generator`, `receiver`. |
-| **scripts/** | Smoke tests (`wsl-build-and-test.sh`, `linux-build-and-test.sh`); micro benchmarks: **`bench-micro.sh`**, **`micro_post.py`** (manifest / aggregate / readable), **`plot_micro_results.py`** (HTML) — see [Benchmarks](#benchmarks). |
+| **scripts/** | Smoke tests (`wsl-build-and-test.sh`, `linux-build-and-test.sh`); **`bench-micro.sh`** / **`bench-macro.sh`**, **`bench_post.py`**, **`plot_bench_results.py`** — see [Benchmarks](#benchmarks). |
 
 **Why “blockchain” in proto?**  
 The repo only uses transactions and batches; the name comes from the original project. You can ignore it—treat `proto/` as “serialization for Transaction and TransactionBatch”.
@@ -195,7 +195,9 @@ Run from the project root so the default receiver path `build/receiver` exists. 
 
 **Scope:** Instrumentation is in **`src/bench.c`** / **`include/bench.h`**. **`--bench`** on the generator prints phase sums and a machine-readable **`BENCH_LINE`**; **`--bench`** on the receiver logs per-batch timing. **`--bench-oneway`** (generator + matching receiver) adds a send-timestamp trailer and **`bench_oneway_ms`** on stderr — do not pair with a receiver that omits **`--bench-oneway`**.
 
-**Micro benchmark** = sweep **count × threads × batch × mode** (in-process + two ZMQ receiver settings). **`scripts/bench-micro.sh`** runs the grid and writes **`results/micro-raw-*.tsv`**; **`scripts/micro_post.py`** writes **`micro-manifest-*.json`**, **`micro-agg-*.tsv`**, and **`micro-readable-*.md`**; **`scripts/plot_micro_results.py`** writes **`micro-agg-*.html`**. Env overrides are in the **header comment** of **`bench-micro.sh`**.
+**Micro benchmark** = sweep **count × threads × batch × mode** (in-process + two ZMQ receiver settings). **`scripts/bench-micro.sh`** writes **`results/micro-raw-*.tsv`** → **`bench_post.py`** (manifest, **`micro-agg-*.tsv`**, **`micro-readable-*.md`**) → **`plot_bench_results.py`** → **`micro-agg-*.html`**. Env overrides: **`bench-micro.sh`** header.
+
+**Macro benchmark** = **sustained end-to-end** runs: **large total TX counts**, ZMQ + spawned receiver, **`recv_sleep_ms`** on the receiver (simulated per-batch work), and **verify on/off**. Default grids use a **wide spread** of counts, threads (1…64 capped by `nproc`), batches, and recv sleeps — tuned for **strong bare metal** (e.g. Chameleon); see the comment block at the top of **`scripts/bench-macro.sh`**. ZMQ-only unless **`BENCH_MACRO_INPROC=1`**. Outputs: **`macro-raw-*.tsv`** → **`bench_post.py`** / **`plot_bench_results.py`**. Override any axis with **`BENCH_MACRO_*`** env vars; use **`BENCH_MACRO_REPS=1`** (and optional **`BENCH_MACRO_WARMUP=0`**) to scout runtime before a full median run.
 
 This is a **practical single-machine harness** (warmup/reps, medians in the agg file), not a full production or distributed benchmark.
 
@@ -204,11 +206,14 @@ This is a **practical single-machine harness** (warmup/reps, medians in the agg 
 | `make bench-micro-quick` | Tiny smoke run. |
 | `make bench-micro` | **Standard** — counts **128…1024**, threads **1,2,4,8,12** (≤ `nproc`), batches **8…128**; can take a long time. Override with **`BENCH_MICRO_*`** env vars or **`BENCH_MICRO_REPS=1`** while iterating. |
 | `make bench-micro-full` | Larger grid than standard; plan runtime. |
-| `make bench-micro-report` | Rebuild HTML from the newest **`results/micro-*.tsv`** (if you already have data). |
+| `make bench-macro-quick` | Macro smoke (**100k** TX, 8 threads, batch 64, recv 0, verify off). |
+| `make bench-macro` | **Macro standard** — counts **50k…1M** (6); threads **1,2,4,8,12,16,24,32,48,64** (≤ `nproc`); batches **32…256**; recv **0,1,2,5,10** ms; verify on/off. **Very many runs** — scout with **`BENCH_MACRO_REPS=1`**. |
+| `make bench-macro-full` | **Macro full** — counts to **2M** (9 steps); denser threads (incl. 6); batches **16…512**; recv **0,1,2,3,5,8,10** ms. **Extremely long** on default warmup/reps. |
+| `make bench-micro-report` / `make bench-macro-report` | Rebuild HTML from the **newest** **`results/micro-*.tsv`** or **`results/macro-*.tsv`**. |
 
-Before the grid, the script prints **`Coverage: … configs → ~N generator runs`**. The HTML report has a **“Coverage in this file”** box so you can see whether you’re looking at a quick run vs a full sweep.
+Before the grid, each script prints a **coverage** line (**`Coverage:`** or **`Macro coverage:`**) with **~N generator runs**. The HTML report has a **“Coverage in this file”** box.
 
-**Reading aggregated TSV/HTML:** start with **`count`**, **`threads`**, **`batch`**, **`mode`**, **`recv_verify`**, then **`throughput_tx_s_median`** and **`wall_ms_median`**, and **`n_ok` / `n_fail`**. Quartile columns match the median when **`n_ok` = 1**. More detail lives in **`micro-readable-*.md`**.
+**Reading aggregated TSV/HTML:** start with **`count`**, **`threads`**, **`batch`**, **`mode`**, **`recv_sleep_ms`**, **`recv_verify`**, then **`throughput_tx_s_median`** and **`wall_ms_median`**, and **`n_ok` / `n_fail`**. Quartile columns match the median when **`n_ok` = 1**. More detail lives in **`micro-readable-*.md`** / **`macro-readable-*.md`**.
 
 ---
 

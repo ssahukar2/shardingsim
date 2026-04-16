@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""HTML report for micro-benchmark TSVs (Chart.js). Pipeline: bench-micro.sh → micro_post.py → this file."""
+"""HTML report for benchmark TSVs (Chart.js). Pipeline: bench-*.sh → bench_post.py → this file."""
 
 from __future__ import annotations
 
@@ -14,14 +14,14 @@ from pathlib import Path
 def find_latest_for_report(results_dir: Path) -> Path | None:
     """Prefer aggregated TSV (one row per config, medians); else raw; else legacy micro-*.tsv."""
     agg = sorted(
-        results_dir.glob("micro-agg-*.tsv"),
+        list(results_dir.glob("micro-agg-*.tsv")) + list(results_dir.glob("macro-agg-*.tsv")),
         key=lambda p: p.stat().st_mtime,
         reverse=True,
     )
     if agg:
         return agg[0]
     raw = sorted(
-        results_dir.glob("micro-raw-*.tsv"),
+        list(results_dir.glob("micro-raw-*.tsv")) + list(results_dir.glob("macro-raw-*.tsv")),
         key=lambda p: p.stat().st_mtime,
         reverse=True,
     )
@@ -125,14 +125,21 @@ def coverage_banner_html(rows: list[dict]) -> str:
     )
 
 
-def build_html(rows: list[dict], source_name: str, generated_at: str, coverage_html: str) -> str:
+def build_html(
+    rows: list[dict],
+    source_name: str,
+    generated_at: str,
+    coverage_html: str,
+    *,
+    report_label: str = "Micro",
+) -> str:
     data_json = json.dumps(rows, ensure_ascii=False)
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Micro benchmark — {source_name}</title>
+  <title>{report_label} benchmark — {source_name}</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <style>
     :root {{
@@ -228,7 +235,7 @@ def build_html(rows: list[dict], source_name: str, generated_at: str, coverage_h
   </style>
 </head>
 <body>
-  <h1>Micro benchmark report</h1>
+  <h1>{report_label} benchmark report</h1>
   <p class="meta">Source: <code>{source_name}</code> · Generated: {generated_at} UTC<span id="aggNote"></span></p>
   {coverage_html}
 
@@ -664,7 +671,7 @@ def build_html(rows: list[dict], source_name: str, generated_at: str, coverage_h
     const blob = new Blob([lines.join("\\n")], {{ type: "text/csv;charset=utf-8" }});
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = "micro_filtered.csv";
+    a.download = "bench_filtered.csv";
     a.click();
     URL.revokeObjectURL(a.href);
   }});
@@ -675,12 +682,12 @@ def build_html(rows: list[dict], source_name: str, generated_at: str, coverage_h
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Generate HTML report from micro benchmark TSV.")
+    ap = argparse.ArgumentParser(description="Generate HTML report from micro/macro benchmark TSV.")
     ap.add_argument(
         "tsv",
         nargs="?",
         type=Path,
-        help="Path to micro-*.tsv (default: newest results/micro-*.tsv)",
+        help="Path to *-agg-*.tsv or *-raw-*.tsv (default: newest results/micro-* or macro-*)",
     )
     ap.add_argument(
         "-o", "--out",
@@ -696,7 +703,10 @@ def main() -> int:
     if tsv_path is None:
         tsv_path = find_latest_for_report(results_dir)
         if tsv_path is None:
-            print("No results/micro-raw-*.tsv or micro-agg-*.tsv found. Run make bench-micro first.", file=sys.stderr)
+            print(
+                "No results/micro-* or macro-* TSV found. Run make bench-micro or make bench-macro first.",
+                file=sys.stderr,
+            )
             return 1
     else:
         tsv_path = tsv_path.resolve()
@@ -715,7 +725,8 @@ def main() -> int:
 
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     cov = coverage_banner_html(rows)
-    html = build_html(rows, tsv_path.name, now, cov)
+    rlabel = "Macro" if "macro-" in tsv_path.name else "Micro"
+    html = build_html(rows, tsv_path.name, now, cov, report_label=rlabel)
     out_path.write_text(html, encoding="utf-8")
     print(f"Wrote {out_path}")
     return 0

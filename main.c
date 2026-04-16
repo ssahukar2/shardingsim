@@ -55,7 +55,7 @@ static void on_signal_stop_receiver(int sig) {
 #define DEFAULT_THREADS  48
 #define DEFAULT_BATCH    64
 #define MAX_THREADS      64
-#define MAX_BATCH_SIZE   256
+#define MAX_BATCH_SIZE   512
 #define SUBMIT_BATCH_PB_PREFIX "SUBMIT_BATCH_PB:"  /* 16 bytes */
 #define DEFAULT_CONNECT  "tcp://localhost:5557"
 

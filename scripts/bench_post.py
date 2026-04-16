@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Post-process micro-benchmark outputs: manifest JSON, aggregated TSV, readable Markdown.
+Post-process benchmark outputs: manifest JSON, aggregated TSV, readable Markdown.
 
-Invoked by scripts/bench-micro.sh. For plotting only, use scripts/plot_micro_results.py.
+Invoked by scripts/bench-micro.sh and scripts/bench-macro.sh. Plotting: scripts/plot_bench_results.py.
 """
 
 from __future__ import annotations
@@ -152,6 +152,8 @@ def agg_path_for_raw(raw: Path) -> Path:
     name = raw.name
     if name.startswith("micro-raw-"):
         return raw.with_name("micro-agg-" + name.removeprefix("micro-raw-"))
+    if name.startswith("macro-raw-"):
+        return raw.with_name("macro-agg-" + name.removeprefix("macro-raw-"))
     return raw.with_name(raw.stem + "-agg.tsv")
 
 
@@ -275,6 +277,14 @@ def _out_readable(inp: Path) -> Path:
         return inp.with_name(
             "micro-readable-" + name.removeprefix("micro-raw-").removesuffix(".tsv") + ".md"
         )
+    if name.startswith("macro-agg-"):
+        return inp.with_name(
+            "macro-readable-" + name.removeprefix("macro-agg-").removesuffix(".tsv") + ".md"
+        )
+    if name.startswith("macro-raw-"):
+        return inp.with_name(
+            "macro-readable-" + name.removeprefix("macro-raw-").removesuffix(".tsv") + ".md"
+        )
     return inp.with_suffix(".readable.md")
 
 
@@ -288,6 +298,10 @@ def cmd_readable(args: argparse.Namespace) -> int:
         p = inp.with_name("micro-agg-" + inp.name.removeprefix("micro-raw-"))
         if p.is_file():
             agg = p
+    elif inp.name.startswith("macro-raw-"):
+        p = inp.with_name("macro-agg-" + inp.name.removeprefix("macro-raw-"))
+        if p.is_file():
+            agg = p
     data_path = agg if agg else inp
     with data_path.open(newline="", encoding="utf-8") as df:
         rows = list(csv.DictReader(df, delimiter="\t"))
@@ -296,12 +310,14 @@ def cmd_readable(args: argparse.Namespace) -> int:
         return 1
     note = f"(used `{agg.name}`)\n**Raw:** `{inp.name}`" if agg else ""
 
+    bench_label = "Macro" if (inp.name.startswith("macro-") or (rows[0].get("suite") or "").startswith("macro-")) else "Micro"
+
     if _is_agg_row(rows[0]):
         rows.sort(key=_sort_key_agg)
         n_fail = sum(1 for r in rows if (r.get("n_fail") or "0").strip() not in ("", "0"))
         now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
         lines = [
-            "# Micro benchmark — readable summary",
+            f"# {bench_label} benchmark — readable summary",
             "",
             f"**Generated:** {now}",
             f"**Source:** `{data_path.name}`" + (f" {note}" if note else ""),
@@ -369,15 +385,17 @@ def cmd_readable(args: argparse.Namespace) -> int:
             emit_table("ZMQ · verify **off**", zmq_nv)
         if zmq_v:
             emit_table("ZMQ · verify **on**", zmq_v)
-        body = "\n".join(lines) + "\n*See `micro-agg-*.tsv` or HTML report for quartiles.*\n"
+        agg_glob = "macro-agg-*.tsv" if bench_label == "Macro" else "micro-agg-*.tsv"
+        body = "\n".join(lines) + f"\n*See `{agg_glob}` or HTML report for quartiles.*\n"
     else:
         for r in rows:
             r.setdefault("suite", "")
             r.setdefault("rep", "1")
         now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
         fails = sum(1 for r in rows if r.get("exit_code", "").strip() != "0")
+        rb = "Macro" if inp.name.startswith("macro-") else "Micro"
         lines = [
-            "# Micro benchmark — readable (raw)",
+            f"# {rb} benchmark — readable (raw)",
             "",
             f"**Generated:** {now}",
             f"**Source:** `{inp.name}`",
@@ -409,7 +427,7 @@ def cmd_readable(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="Micro-benchmark post-processing (manifest, aggregate, readable).")
+    p = argparse.ArgumentParser(description="Benchmark post-processing (manifest, aggregate, readable).")
     sub = p.add_subparsers(dest="command", required=True)
 
     pm = sub.add_parser("manifest", help="Write JSON manifest beside the benchmark run.")
@@ -418,16 +436,20 @@ def build_parser() -> argparse.ArgumentParser:
     pm.add_argument("suite", help="Suite name: quick, standard, or full")
     pm.add_argument("warmup", type=int, help="Warmup repetitions per config")
     pm.add_argument("reps", type=int, help="Recorded repetitions per config")
-    pm.add_argument("raw_tsv", help="Path to micro-raw-*.tsv (may not exist yet)")
+    pm.add_argument("raw_tsv", help="Path to micro-raw-*.tsv or macro-raw-*.tsv (may not exist yet)")
     pm.add_argument("counts_doc", help="Human-readable description of count/thread/batch grid")
     pm.set_defaults(func=cmd_manifest)
 
-    pa = sub.add_parser("aggregate", help="Group raw TSV rows and write micro-agg-*.tsv")
-    pa.add_argument("raw_tsv", help="Input micro-raw-*.tsv")
+    pa = sub.add_parser("aggregate", help="Group raw TSV rows and write *-agg-*.tsv next to raw")
+    pa.add_argument("raw_tsv", help="Input micro-raw-*.tsv or macro-raw-*.tsv")
     pa.set_defaults(func=cmd_aggregate)
 
-    pr = sub.add_parser("readable", help="Write micro-readable-*.md from raw or aggregate TSV")
-    pr.add_argument("source_tsv", type=Path, help="micro-raw-*.tsv (prefers sibling micro-agg-*.tsv if present)")
+    pr = sub.add_parser("readable", help="Write *-readable-*.md from raw or aggregate TSV")
+    pr.add_argument(
+        "source_tsv",
+        type=Path,
+        help="micro-raw-*.tsv or macro-raw-*.tsv (prefers sibling *-agg-*.tsv if present)",
+    )
     pr.set_defaults(func=cmd_readable)
 
     return p

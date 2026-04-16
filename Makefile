@@ -28,7 +28,8 @@ REC_OBJS = $(BUILD_DIR)/receiver.o \
            $(BUILD_DIR)/blockchain.pb-c.o
 RECEIVER = $(BUILD_DIR)/receiver
 
-.PHONY: all clean run test bench-micro bench-micro-quick bench-micro-full bench-micro-report
+.PHONY: all clean run test bench-micro bench-micro-quick bench-micro-full bench-micro-report \
+	bench-macro bench-macro-quick bench-macro-full bench-macro-report
 
 all: $(BUILD_DIR) $(GENERATOR) $(RECEIVER)
 
@@ -94,6 +95,19 @@ bench-micro-quick: all
 bench-micro-full: all
 	@BENCH_MICRO_FULL=1 bash ./scripts/bench-micro.sh
 
-# HTML only (Chart.js); aggregation lives in scripts/micro_post.py when you run bench-micro.sh
+# HTML only (Chart.js); aggregation lives in scripts/bench_post.py when you run bench-*.sh
 bench-micro-report:
-	@python3 ./scripts/plot_micro_results.py
+	@python3 ./scripts/plot_bench_results.py
+
+# Macro: large tx counts + receiver sleep grid (see scripts/bench-macro.sh)
+bench-macro: all
+	@bash ./scripts/bench-macro.sh
+
+bench-macro-quick: all
+	@BENCH_MACRO_SUITE=quick bash ./scripts/bench-macro.sh
+
+bench-macro-full: all
+	@BENCH_MACRO_FULL=1 bash ./scripts/bench-macro.sh
+
+bench-macro-report:
+	@python3 ./scripts/plot_bench_results.py

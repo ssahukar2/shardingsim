@@ -55,3 +55,7 @@ dkms.conf
 *.dwo
 
 build/
+
+# Benchmark outputs (local / cluster runs; regenerate via make bench-*)
+results/micro-*
+results/macro-*
